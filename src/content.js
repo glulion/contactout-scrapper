@@ -20,7 +20,8 @@ import './styles.css';
         modalCreated: false,
         retryCount: 0,
         isAuthenticated: false,
-        authToken: null
+        authToken: null,
+        userId: null
     };
 
     // Efficient button detection with limited attempts
@@ -73,13 +74,42 @@ import './styles.css';
         console.log('ContactOut Import Tool: Initialized successfully');
     }
 
+    // Helper function to validate email format
+    function isValidEmail(email) {
+        if (!email || typeof email !== 'string') return false;
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(email);
+    }
+
+    // Helper function to generate UUID
+    function generateUUID() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0;
+            const v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
+
+    // Helper function to format experience periods
+    function formatExperiencePeriods(experiences) {
+        if (!Array.isArray(experiences)) return [];
+        
+        return experiences.map(exp => ({
+            ...exp,
+            period_from: exp.period_from ? new Date(exp.period_from).toISOString() : null,
+            period_to: exp.period_to ? new Date(exp.period_to).toISOString() : null
+        }));
+    }
+
     // Check if user is authenticated
     function checkAuthStatus() {
-        chrome.storage.local.get(['authToken'], function(result) {
+        chrome.storage.local.get(['authToken', 'userId'], function(result) {
             if (result.authToken) {
                 state.authToken = result.authToken;
+                state.userId = result.userId;
                 state.isAuthenticated = true;
                 console.log('User is authenticated');
+                console.log('User ID:', state.userId);
                 // Initialize the extension if authenticated
                 if (!state.isInitialized) {
                     init();
@@ -377,18 +407,53 @@ import './styles.css';
         const companySelectors = [
             '[data-testid="company-modal-btn"]',
             '[class*="company"]',
-            '[class*="org"]'
+            '[class*="org"]',
+            'span[class*="company"]',
+            'div[class*="company"]',
+            'a[class*="company"]'
         ];
         
         for (const selector of companySelectors) {
             const companyElement = profile.querySelector(selector);
             if (companyElement) {
                 const companyText = companyElement.textContent.trim();
-                if (companyText && (companyText.includes('Inc') || companyText.includes('LLC') || companyText.includes('Corp') || companyText.includes('Ltd'))) {
+                // Accept any company text, not just those with legal suffixes
+                if (companyText && companyText.length > 1) {
                     data.company_name = companyText;
                     console.log('Found company with selector', selector, ':', data.company_name);
                     break;
                 }
+            }
+        }
+        
+        // If no company found with specific selectors, try to extract from experience text
+        if (!data.company_name) {
+            const experienceSelectors = [
+                '.css-1o52pgu span',
+                '[class*="experience"]',
+                '[class*="work"]',
+                'span[class*="experience"]',
+                'div[class*="experience"]'
+            ];
+            
+            for (const selector of experienceSelectors) {
+                const experienceElements = profile.querySelectorAll(selector);
+                for (const element of experienceElements) {
+                    const experienceText = element.textContent.trim();
+                    if (experienceText && experienceText.includes(' at ')) {
+                        // Extract company name from "Title at Company" format
+                        const companyMatch = experienceText.match(/at\s+([^*]+?)(?:\s+in|\s*$)/);
+                        if (companyMatch) {
+                            const companyName = companyMatch[1].trim();
+                            if (companyName && companyName.length > 1) {
+                                data.company_name = companyName;
+                                console.log('Found company from experience text:', data.company_name);
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (data.company_name) break;
             }
         }
 
@@ -397,7 +462,9 @@ import './styles.css';
             '.css-1o52pgu span',
             '[class*="title"]',
             '[class*="role"]',
-            '[class*="position"]'
+            '[class*="position"]',
+            'span[class*="experience"]',
+            'div[class*="experience"]'
         ];
         
         for (const selector of titleSelectors) {
@@ -509,8 +576,8 @@ import './styles.css';
                     if (experienceText && experienceText.includes(' at ')) {
                         const experience = {
                             role_title: experienceText,
-                            period_from: '',
-                            period_to: '',
+                            period_from: null, // Use null instead of empty string for proper date handling
+                            period_to: null,
                             is_current: index === 0, // First experience is current
                             organization_name: '',
                             organization_logo_url: '',
@@ -543,8 +610,8 @@ import './styles.css';
                             course: educationText,
                             field_of_study: '',
                             grade: '',
-                            period_from: '',
-                            period_to: '',
+                            period_from: null, // Use null instead of empty string for proper date handling
+                            period_to: null,
                             is_current: false,
                             organization_name: '',
                             organization_logo_url: '',
@@ -716,9 +783,19 @@ import './styles.css';
         console.log('- Source:', contactData.source);
         console.log('================================');
 
-        // Prepare API request data
+        // Prepare API request data with proper validation
+        const privateEmail = fullContactData?.private_email || '';
+        const workEmail = fullContactData?.work_email || contactData.email || '';
+        
+        // Use user_id from login response, fallback to generated UUID
+        const userId = state.userId || generateUUID();
+        
+        // Format experience periods with proper ISO 8601 dates
+        const professionalExperiences = formatExperiencePeriods(fullContactData?.professional_experiences || []);
+        const educationExperiences = formatExperiencePeriods(fullContactData?.education_experiences || []);
+        
         const apiData = {
-            work_email: fullContactData?.work_email || contactData.email || '',
+            work_email: workEmail,
             first_name: fullContactData?.first_name || contactData.name.split(' ')[0] || '',
             last_name: fullContactData?.last_name || contactData.name.split(' ').slice(1).join(' ') || '',
             company_name: fullContactData?.company_name || contactData.company || '',
@@ -732,7 +809,8 @@ import './styles.css';
             has_duplicate: fullContactData?.has_duplicate || false,
             avatar_url: fullContactData?.avatar_url || '',
             unsubscribed: fullContactData?.unsubscribed || false,
-            private_email: fullContactData?.private_email || '',
+            // Only include private_email if it's a valid email format
+            private_email: isValidEmail(privateEmail) ? privateEmail : null,
             work_mobile_phone: fullContactData?.work_mobile_phone || '',
             private_mobile_phone: fullContactData?.private_mobile_phone || '',
             work_phone: fullContactData?.work_phone || contactData.phone || '',
@@ -753,7 +831,7 @@ import './styles.css';
             tiktok_url: fullContactData?.tiktok_url || '',
             main_role_title: fullContactData?.main_role_title || contactData.title || '',
             status: fullContactData?.status || 'none',
-            user_id: fullContactData?.user_id || `contactout_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            user_id: userId,
             personal_detail: {
                 dob_day: null,
                 dob_month: null,
@@ -770,8 +848,8 @@ import './styles.css';
                 maiden_name: '',
                 social_security_number: ''
             },
-            professional_experiences: fullContactData?.professional_experiences || [],
-            education_experiences: fullContactData?.education_experiences || [],
+            professional_experiences: professionalExperiences,
+            education_experiences: educationExperiences,
             volunteer_experiences: fullContactData?.volunteer_experiences || [],
             accomplishments: fullContactData?.accomplishments || [],
             main_professional_experiences: fullContactData?.main_professional_experiences || [],

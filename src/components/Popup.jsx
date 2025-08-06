@@ -67,7 +67,11 @@ const Popup = () => {
       const data = await response.json();
 
       if (data.access_token) {
-        await chrome.storage.local.set({ authToken: data.access_token });
+        // Store both auth token and user_id from login response
+        await chrome.storage.local.set({ 
+          authToken: data.access_token,
+          userId: data.user_id || data.id || null
+        });
         setIsAuthenticated(true);
         setShowLoginModal(false);
         setLoginData({ username: '', password: '' });
