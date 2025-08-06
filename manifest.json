@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "ContactOut Import Tool",
+  "version": "1.0",
+  "description": "Adds import functionality to ContactOut search results",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://contactout.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://contactout.com/dashboard/search*"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["modal.html"],
+      "matches": ["https://contactout.com/*"]
+    }
+  ],
+  "action": {
+    "default_title": "ContactOut Import Tool"
+  }
+} 
