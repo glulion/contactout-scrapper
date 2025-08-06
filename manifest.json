@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ContactOut Import Tool",
-  "version": "1.0",
-  "description": "Adds import functionality to ContactOut search results",
+  "version": "1.0.0",
+  "description": "Adds import functionality to ContactOut search results with React UI",
   "permissions": [
     "activeTab",
     "storage"
@@ -14,16 +14,20 @@
     {
       "matches": ["https://contactout.com/dashboard/search*"],
       "js": ["content.js"],
-      "css": ["styles.css"]
+      "css": ["content.css"]
     }
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ContactOut Import Tool"
+  },
   "web_accessible_resources": [
     {
-      "resources": ["modal.html"],
+      "resources": ["*"],
       "matches": ["https://contactout.com/*"]
     }
-  ],
-  "action": {
-    "default_title": "ContactOut Import Tool"
-  }
+  ]
 } 
